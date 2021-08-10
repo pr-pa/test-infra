@@ -1,0 +1,243 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "webAppName": {
+      "type": "string",
+      "defaultValue": "[concat('webApp-', uniqueString(resourceGroup().id))]",
+      "minLength": 2,
+      "metadata": {
+        "description": "Web app name."
+      }
+    },
+    "subnetId":{
+        "type": "string",
+        "metadata": {
+            "description": "Subnet ID for creating a private endpoint."
+          }
+    },
+    "jobCollectionName":{
+        "type": "string",
+        "defaultValue": "sentiahourlyjob"        
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "DevSlotName": {
+        "type": "string",
+        "defaultValue": "DevelopmentSlot"
+      },
+    "ProdSlotName": {
+        "type": "string",
+        "defaultValue": "ProductiontSlot"
+      },
+     "TestSlotName": {
+        "type": "string",
+        "defaultValue": "TestSlot"
+      },
+    "sku": {
+      "type": "string",
+      "defaultValue": "F1",
+      "metadata": {
+        "description": "The SKU of App Service Plan."
+      }
+    },
+    "linuxFxVersion": {
+      "type": "string",
+      "defaultValue": "Node|10.14",
+      "metadata": {
+        "description": "The Runtime stack of current web app"
+      }
+    },
+    "repoUrl": {
+      "type": "string",
+      "defaultValue": "test.domain.com/myfakerepository",
+      "metadata": {
+        "description": "Optional Git Repo URL"
+      }
+    },
+    "metricName": {
+        "type": "string",
+        "defaultValue": "CpuPercentage",
+        "metadata": {
+          "description": "The metric name."
+        }
+      },
+      "metricThresholdToScaleOut": {
+        "type": "Int",
+        "defaultValue": 60,
+        "metadata": {
+          "description": "The metric upper threshold.  If the metric value is above this threshold then autoscale engine will initiate scale out action."
+        }
+      },
+      "changePercentScaleOut": {
+        "type": "Int",
+        "defaultValue": 20,
+        "metadata": {
+          "description": "The percentage to increase the instance count when autoscale engine is initiating scale out action."
+        }
+      },
+      "metricThresholdToScaleIn": {
+        "type": "Int",
+        "defaultValue": 20,
+        "metadata": {
+          "description": "The metric lower threshold.  If the metric value is below this threshold then autoscale engine will initiate scale in action."
+        }
+      },
+      "changePercentScaleIn": {
+        "type": "Int",
+        "defaultValue": 10,
+        "metadata": {
+          "description": "The percentage to decrease the instance count when autoscale engine is initiating scale in action."
+        }
+      },
+      "autoscaleEnabled": {
+        "type": "Bool",
+        "defaultValue": true,
+        "metadata": {
+          "description": "A boolean to indicate whether the autoscale policy is enabled or disabled."
+        }
+      }
+  },
+  "variables": {
+    "appServicePlanPortalName": "[concat('AppServicePlan-', parameters('webAppName'))]",
+    "targetResourceId": "[resourceId('Microsoft.Web/serverFarms/', parameters('webAppName'))]",
+    "settingName": "[concat(toLower(parameters('webAppName')), '-setting')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2020-06-01",
+      "name": "[variables('appServicePlanPortalName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[parameters('sku')]"
+      },
+      "kind": "linux",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+        "type": "Microsoft.Insights/autoscalesettings",
+        "name": "[variables('settingName')]",
+        "dependsOn": [
+            "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanPortalName'))]"
+        ],
+        "apiVersion": "2014-04-01",
+        "location": "[parameters('location')]",
+        "properties": {
+          "profiles": [
+            {
+              "name": "DefaultAutoscaleProfile",
+              "capacity": {
+                "minimum": 2,
+                "maximum": 5,
+                "default": 5
+              },
+              "rules": [
+                {
+                  "metricTrigger": {
+                    "metricName": "[parameters('metricName')]",
+                    "metricResourceUri": "[variables('targetResourceId')]",
+                    "timeGrain": "PT5M",
+                    "statistic": "Average",
+                    "timeWindow": "PT10M",
+                    "timeAggregation": "Average",
+                    "operator": "GreaterThan",
+                    "threshold": "[parameters('metricThresholdToScaleOut')]"
+                  },
+                  "scaleAction": {
+                    "direction": "Increase",
+                    "type": "PercentChangeCount",
+                    "value": "[parameters('changePercentScaleOut')]",
+                    "cooldown": "PT10M"
+                  }
+                },
+                {
+                  "metricTrigger": {
+                    "metricName": "[parameters('metricName')]",
+                    "metricResourceUri": "[variables('targetResourceId')]",
+                    "timeGrain": "PT5M",
+                    "statistic": "Average",
+                    "timeWindow": "PT10M",
+                    "timeAggregation": "Average",
+                    "operator": "LessThan",
+                    "threshold": "[parameters('metricThresholdToScaleIn')]"
+                  },
+                  "scaleAction": {
+                    "direction": "Decrease",
+                    "type": "PercentChangeCount",
+                    "value": "[parameters('changePercentScaleIn')]",
+                    "cooldown": "PT10M"
+                  }
+                }
+              ]
+            }
+          ],
+          "enabled": "[parameters('autoscaleEnabled')]",
+          "targetResourceUri": "[variables('targetResourceId')]"
+        }
+      }
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2020-06-01",
+      "name": "[parameters('webAppName')]",
+      "location": "[parameters('location')]",
+
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanPortalName'))]"
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanPortalName'))]",
+        "virtualNetworkSubnetId": "[parameters('subnetID')]",
+        "siteConfig": {
+          "linuxFxVersion": "[parameters('linuxFxVersion')]",
+          "vnetRouteAllEnabled": true
+        },
+        "resources": [
+          {
+            "apiVersion": "2015-08-01",
+            "name": "[parameters('ProdSlotName')]",
+            "type": "slots",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+              "[resourceId('Microsoft.Web/Sites', parameters('webAppName'))]"
+            ],
+            "properties": {
+            },
+            "resources": []
+          },
+          {
+            "apiVersion": "2015-08-01",
+            "name": "[parameters('DevSlotName')]",
+            "type": "slots",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+              "[resourceId('Microsoft.Web/Sites', parameters('webAppName'))]"
+            ],
+            "properties": {
+            },
+            "resources": []
+          },
+          {
+            "apiVersion": "2015-08-01",
+            "name": "[parameters('TestSlotName')]",
+            "type": "slots",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+              "[resourceId('Microsoft.Web/Sites', parameters('webAppName'))]"
+            ],
+            "properties": {
+            },
+            "resources": []
+          }
+        ]
+      }
+    }    
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+      "storageAccountName": {
+          "type": "string",
+          "defaultValue": "[concat('storage', uniqueString(resourceGroup().id))]",
+          "metadata": {
+              "description": "Specifies the name of the Azure Storage account."
+          }
+      },
+      "fileShareName": {
+          "type": "string",
+          "defaultValue": "ftpfileshare",
+          "metadata": {
+              "description": "Specifies the name of the File Share. File share names must be between 3 and 63 characters in length and use numbers, lower-case letters and dash (-) only."
+          }
+      },
+      "location": {
+          "type": "string",
+          "defaultValue": "[resourceGroup().location]",
+          "metadata": {
+              "description": "Specifies the location in which the Azure Storage resources should be deployed."
+          }
+      },
+      "fileStorageAccountPrivateEndpointName": {
+          "type": "string",
+          "defaultValue": "FileSharePrivateEndpoint",
+          "metadata": {
+            "description": "Specifies the name of the private link to the boot diagnostics storage account."
+          }
+        },
+      "subnetId":{
+          "type": "string",
+          "metadata": {
+              "description": "Subnet ID for creating a private endpoint."
+            }
+
+      }
+  },
+  "variables": {
+      "fileStorageAccountPrivateEndpointId": "[resourceId('Microsoft.Network/privateEndpoints', parameters('fileStorageAccountPrivateEndpointName'))]",
+      "fileStorageAccountId" : "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+      "fileShareId": "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('storageAccountName'), 'default', parameters('fileShareName'))]",
+      "fileStorageAccountPrivateEndpointGroupName": "file"
+  },
+  "resources": [
+      {
+          "type": "Microsoft.Storage/storageAccounts",
+          "apiVersion": "2019-06-01",
+          "name": "[parameters('storageAccountName')]",
+          "location": "[parameters('location')]",
+          "kind": "StorageV2",
+          "sku": {
+              "name": "Standard_LRS",
+              "tier": "Standard"
+          },
+          "properties": {
+              "accessTier": "Hot"
+          }
+      },
+      {
+          "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+          "apiVersion": "2019-06-01",
+          "name": "[concat(parameters('storageAccountName'), '/default/', parameters('fileShareName'))]",
+          "dependsOn": [
+              "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+          ]
+      },
+      {
+          "type": "Microsoft.Network/privateEndpoints",
+          "apiVersion": "2020-07-01",
+          "name": "[parameters('fileStorageAccountPrivateEndpointName')]",
+          "location": "[parameters('location')]",
+          "dependsOn": [
+            "[variables('fileStorageAccountId')]",
+            "[variables('fileShareId')]"
+          ],
+          "properties": {
+            "privateLinkServiceConnections": [
+              {
+                "name": "[parameters('fileStorageAccountPrivateEndpointName')]",
+                "properties": {
+                  "privateLinkServiceId": "[variables('fileStorageAccountId')]",
+                  "groupIds": [
+                    "[variables('fileStorageAccountPrivateEndpointGroupName')]"
+                  ]
+                }
+              }
+            ],
+            "subnet": {
+              "id": "[parameters('subnetId')]"
+            }
+          }
+        }
+  ]
+}
